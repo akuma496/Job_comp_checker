@@ -2,7 +2,7 @@ import logging
 from typing import Mapping
 
 from requirements_extraction.claude_client import call_claude_tool
-from requirements_extraction.models import CATEGORIES, RequirementDraft
+from requirements_extraction.models import CATEGORIES, RequirementDraft, coerce_items
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ def extract_explicit_requirements(job: Mapping) -> list[RequirementDraft]:
         input_schema=INPUT_SCHEMA,
     )
     drafts = []
-    for item in result.get("requirements", []):
+    for item in coerce_items(result.get("requirements", [])):
         if not isinstance(item, dict) or "raw_text" not in item or "category" not in item:
             logger.warning("skipping malformed explicit requirement item: %r", item)
             continue
