@@ -1,5 +1,15 @@
+import html
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def strip_html(text: str | None) -> str:
+    if not text:
+        return ""
+    return html.unescape(_TAG_RE.sub(" ", text)).strip()
 
 
 @dataclass
