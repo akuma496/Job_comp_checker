@@ -2,7 +2,7 @@ import itertools
 import logging
 from collections import defaultdict
 
-from db.connection import get_conn
+from db.connection import get_conn, get_or_create
 from requirements_extraction.models import RequirementDraft
 
 logger = logging.getLogger(__name__)
@@ -10,16 +10,6 @@ logger = logging.getLogger(__name__)
 
 def _normalize(raw_text: str) -> str:
     return raw_text.strip().lower()
-
-
-def _get_or_create_skill(conn, canonical_name: str, category: str | None = None) -> int:
-    row = conn.execute("SELECT id FROM skills WHERE canonical_name = ?", (canonical_name,)).fetchone()
-    if row:
-        return row["id"]
-    cursor = conn.execute(
-        "INSERT INTO skills (canonical_name, category) VALUES (?, ?)", (canonical_name, category)
-    )
-    return cursor.lastrowid
 
 
 def recompute_cooccurrence_matrix() -> None:
@@ -42,7 +32,9 @@ def recompute_cooccurrence_matrix() -> None:
         for row in rows:
             skill_id = row["normalized_skill_id"]
             if skill_id is None:
-                skill_id = _get_or_create_skill(conn, _normalize(row["raw_text"]), row["category"])
+                skill_id, _ = get_or_create(
+                    conn, "skills", {"canonical_name": _normalize(row["raw_text"])}, {"category": row["category"]}
+                )
                 conn.execute("UPDATE requirements SET normalized_skill_id = ? WHERE id = ?", (skill_id, row["id"]))
             job_skills[row["job_id"]].add(skill_id)
 

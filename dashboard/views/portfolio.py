@@ -6,22 +6,11 @@ import streamlit as st
 
 from dashboard.charts import build_gap_bar_figure, build_heatmap_figure
 from db.connection import get_conn
+from db.queries import load_resume_versions
 from matching.engine import compute_match_batch
 from requirements_extraction.models import CATEGORIES
 
 TOP_N_GAPS = 15
-
-
-def _load_resume_versions() -> list[dict]:
-    with get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT resume_versions.id, resumes.display_name, resume_versions.version_label
-            FROM resume_versions JOIN resumes ON resumes.id = resume_versions.resume_id
-            ORDER BY resume_versions.id DESC
-            """
-        ).fetchall()
-    return [dict(r) for r in rows]
 
 
 def _active_job_ids() -> list[int]:
@@ -58,7 +47,7 @@ def render() -> None:
     st.header("Portfolio")
     st.caption("Match/gap patterns across every job you're tracking, for one resume version. No application-status tracking here — that's out of scope.")
 
-    resume_versions = _load_resume_versions()
+    resume_versions = load_resume_versions()
     if not resume_versions:
         st.info('No resumes uploaded yet. Add one on the "Resumes" page.')
         return
@@ -112,7 +101,7 @@ def render() -> None:
                 "Rank": i + 1,
                 "Job": m["title"],
                 "Company": m["company"],
-                "Match %": round(m["overall_score"] * 100) if m["overall_score"] is not None else "N/A (not extracted)",
+                "Match %": round(m["overall_score"] * 100) if m["overall_score"] is not None else None,
                 "Posting": m["posting_url"],
             }
             for i, m in enumerate(matches)
@@ -124,7 +113,10 @@ def render() -> None:
         use_container_width=True,
         on_select="rerun",
         selection_mode="single-row",
-        column_config={"Posting": st.column_config.LinkColumn(display_text="View")},
+        column_config={
+            "Posting": st.column_config.LinkColumn(display_text="View"),
+            "Match %": st.column_config.NumberColumn(help="Blank means this job hasn't been through requirement extraction yet"),
+        },
     )
 
     selected_rows = selection.selection.rows if selection and selection.selection else []

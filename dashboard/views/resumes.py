@@ -5,7 +5,7 @@ from pathlib import Path
 import streamlit as st
 
 from config import BASE_DIR
-from db.connection import get_conn
+from db.connection import get_conn, get_or_create
 from resume.parser import extract_raw_text, parsed_resume_to_json, structure_resume
 
 RESUME_DIR = BASE_DIR / "data" / "resumes"
@@ -19,14 +19,6 @@ def _safe_path_component(value: str, fallback: str = "file") -> str:
     or an uploaded file's client-supplied name)."""
     value = _UNSAFE_CHARS.sub("_", value).lstrip(".")
     return value or fallback
-
-
-def _get_or_create_resume(conn, display_name: str) -> int:
-    row = conn.execute("SELECT id FROM resumes WHERE display_name = ?", (display_name,)).fetchone()
-    if row:
-        return row["id"]
-    cursor = conn.execute("INSERT INTO resumes (display_name) VALUES (?)", (display_name,))
-    return cursor.lastrowid
 
 
 def _load_resumes() -> list[dict]:
@@ -103,7 +95,7 @@ def render() -> None:
                     continue
 
                 with get_conn() as conn:
-                    resume_id = _get_or_create_resume(conn, display_name)
+                    resume_id, _ = get_or_create(conn, "resumes", {"display_name": display_name})
                     conn.execute(
                         """
                         INSERT INTO resume_versions (resume_id, version_label, file_path, raw_text)

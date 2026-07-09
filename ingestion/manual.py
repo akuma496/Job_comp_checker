@@ -1,6 +1,6 @@
 import hashlib
 
-from db.connection import get_conn
+from db.connection import get_conn, get_or_create
 
 
 def ingest_manual_posting(raw_text: str, title: str, company_name: str, role_query: str | None = None) -> int:
@@ -8,17 +8,15 @@ def ingest_manual_posting(raw_text: str, title: str, company_name: str, role_que
     external_id = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()[:16]
 
     with get_conn() as conn:
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO companies (name, ats_type, ats_board_token, discovered_via)
-            VALUES (?, 'manual', ?, 'manual_paste')
-            """,
-            (company_name, f"manual-{hashlib.sha256(company_name.encode()).hexdigest()[:12]}"),
+        company_id, _ = get_or_create(
+            conn,
+            "companies",
+            {"ats_type": "manual", "name": company_name},
+            {
+                "ats_board_token": f"manual-{hashlib.sha256(company_name.encode()).hexdigest()[:12]}",
+                "discovered_via": "manual_paste",
+            },
         )
-        company_id = conn.execute(
-            "SELECT id FROM companies WHERE ats_type = 'manual' AND name = ?",
-            (company_name,),
-        ).fetchone()["id"]
 
         conn.execute(
             """

@@ -3,8 +3,9 @@ import json
 
 import streamlit as st
 
-from dashboard.charts import REQ_TYPE_COLORS, REQ_TYPE_LABELS, build_radar_figure
+from dashboard.charts import build_radar_figure, render_req_type_badge
 from db.connection import get_conn
+from db.queries import load_resume_versions
 from matching.engine import compute_match
 from requirements_extraction.models import CATEGORIES
 
@@ -17,18 +18,6 @@ def _load_jobs() -> list[dict]:
             JOIN companies ON companies.id = jobs.company_id
             WHERE jobs.status = 'active'
             ORDER BY jobs.last_seen_at DESC
-            """
-        ).fetchall()
-    return [dict(r) for r in rows]
-
-
-def _load_resume_versions() -> list[dict]:
-    with get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT resume_versions.id, resumes.display_name, resume_versions.version_label
-            FROM resume_versions JOIN resumes ON resumes.id = resume_versions.resume_id
-            ORDER BY resume_versions.id DESC
             """
         ).fetchall()
     return [dict(r) for r in rows]
@@ -58,7 +47,7 @@ def render() -> None:
     st.caption("Compare one resume version against one job's requirements.")
 
     jobs = _load_jobs()
-    resume_versions = _load_resume_versions()
+    resume_versions = load_resume_versions()
     if not jobs:
         st.info("No jobs ingested yet.")
         return
@@ -141,10 +130,9 @@ def render() -> None:
     if not result["gap_list"]:
         st.success("No gaps — every requirement is covered by a confident keyword match.")
     for gap in result["gap_list"]:
-        badge_color = REQ_TYPE_COLORS[gap["req_type"]]
         status_label = "Weak match" if gap["status"] == "weak_match" else "Missing"
         st.markdown(
-            f"<span style='color:{badge_color}; font-weight:600; font-size:0.8em;'>{REQ_TYPE_LABELS[gap['req_type']]}</span> "
+            f"{render_req_type_badge(gap['req_type'])} "
             f"· **{status_label}** · [{html.escape(gap['category'])}] {html.escape(gap['raw_text'])}",
             unsafe_allow_html=True,
         )

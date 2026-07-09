@@ -3,7 +3,7 @@ import html
 import pandas as pd
 import streamlit as st
 
-from dashboard.charts import REQ_TYPE_COLORS, REQ_TYPE_LABELS, build_requirement_count_bar
+from dashboard.charts import REQ_TYPE_LABELS, build_requirement_count_bar, render_req_type_badge
 from db.connection import get_conn
 from requirements_extraction.pipeline import process_job
 
@@ -39,18 +39,6 @@ def _load_job_detail(job_id: int) -> dict:
         ).fetchall()
     return {"job": dict(job), "requirements": [dict(r) for r in reqs]}
 
-
-_BORDER_STYLE = {"explicit": "solid", "context_inferred": "dashed", "cooccurring": "dotted"}
-
-
-def _badge(req_type: str) -> str:
-    color = REQ_TYPE_COLORS[req_type]
-    border = _BORDER_STYLE[req_type]
-    return (
-        f'<span style="color:{color}; border:1.5px {border} {color}; '
-        f'border-radius:4px; padding:1px 6px; font-size:0.75em; font-weight:600;">'
-        f"{REQ_TYPE_LABELS[req_type]}</span>"
-    )
 
 
 def render() -> None:
@@ -135,7 +123,7 @@ def render() -> None:
                 continue
             for item in items:
                 st.markdown(
-                    f"{_badge(req_type)} **[{html.escape(item['category'])}]** {html.escape(item['raw_text'])} "
+                    f"{render_req_type_badge(req_type)} **[{html.escape(item['category'])}]** {html.escape(item['raw_text'])} "
                     f"&nbsp;·&nbsp; confidence {item['confidence']:.2f}",
                     unsafe_allow_html=True,
                 )

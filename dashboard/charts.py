@@ -16,6 +16,20 @@ CATEGORY_LABELS = {
     "domain_knowledge": "Domain Knowledge",
     "seniority_leadership": "Seniority / Leadership",
 }
+_REQ_TYPE_BORDER_STYLE = {"explicit": "solid", "context_inferred": "dashed", "cooccurring": "dotted"}
+
+
+def render_req_type_badge(req_type: str) -> str:
+    """HTML span for a requirement-type badge — solid/dashed/dotted border distinguishes
+    explicit/context-inferred/co-occurring at a glance. Shared by every dashboard view
+    that lists requirements, so the visual language stays consistent everywhere."""
+    color = REQ_TYPE_COLORS[req_type]
+    border = _REQ_TYPE_BORDER_STYLE[req_type]
+    return (
+        f'<span style="color:{color}; border:1.5px {border} {color}; '
+        f'border-radius:4px; padding:1px 6px; font-size:0.75em; font-weight:600;">'
+        f"{REQ_TYPE_LABELS[req_type]}</span>"
+    )
 
 
 def build_requirement_count_bar(counts: dict[str, int]) -> go.Figure:

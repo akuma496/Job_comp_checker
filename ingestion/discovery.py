@@ -5,7 +5,7 @@ from typing import Protocol
 import requests
 
 from config import settings
-from db.connection import get_conn
+from db.connection import get_conn, get_or_create
 
 _SITE_AND_TOKEN_PATTERN = {
     "greenhouse": ("boards.greenhouse.io", re.compile(r"boards\.greenhouse\.io/(?:embed/job_board\?for=)?([\w-]+)")),
@@ -70,19 +70,13 @@ def discover_boards(role_title: str, ats_type: str, provider: SearchProvider | N
     new_tokens = []
     with get_conn() as conn:
         for token in tokens:
-            existing = conn.execute(
-                "SELECT id FROM companies WHERE ats_type = ? AND ats_board_token = ?",
-                (ats_type, token),
-            ).fetchone()
-            if existing:
-                continue
-            conn.execute(
-                """
-                INSERT INTO companies (name, ats_type, ats_board_token, discovered_via)
-                VALUES (?, ?, ?, ?)
-                """,
-                (token, ats_type, token, f'search:"{query}"'),
+            _, created = get_or_create(
+                conn,
+                "companies",
+                {"ats_type": ats_type, "ats_board_token": token},
+                {"name": token, "discovered_via": f'search:"{query}"'},
             )
-            new_tokens.append(token)
+            if created:
+                new_tokens.append(token)
 
     return new_tokens

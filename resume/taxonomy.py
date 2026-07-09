@@ -6,7 +6,7 @@ from pathlib import Path
 from rapidfuzz import fuzz, process
 
 from config import BASE_DIR
-from db.connection import get_conn
+from db.connection import get_conn, get_or_create
 
 logger = logging.getLogger(__name__)
 
@@ -28,17 +28,7 @@ def load_seed_taxonomy(csv_path: Path = SEED_CSV_PATH) -> None:
             canonical_name = row["canonical_name"].strip()
             category = row["category"].strip()
 
-            existing = conn.execute(
-                "SELECT id FROM skills WHERE canonical_name = ?", (canonical_name,)
-            ).fetchone()
-            if existing:
-                skill_id = existing["id"]
-            else:
-                cursor = conn.execute(
-                    "INSERT INTO skills (canonical_name, category) VALUES (?, ?)",
-                    (canonical_name, category),
-                )
-                skill_id = cursor.lastrowid
+            skill_id, _ = get_or_create(conn, "skills", {"canonical_name": canonical_name}, {"category": category})
 
             aliases = [a.strip() for a in (row.get("aliases") or "").split("|") if a.strip()]
             for alias in aliases:
