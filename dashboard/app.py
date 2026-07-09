@@ -19,5 +19,5 @@ PAGES = {
     "Pipeline Controls": pipeline.render,
 }
 
-page = st.sidebar.radio("View", list(PAGES.keys()))
+page = st.sidebar.radio("View", list(PAGES.keys()), key="nav_view")
 PAGES[page]()

@@ -115,12 +115,25 @@ def render() -> None:
             for i, m in enumerate(matches)
         ]
     )
-    st.dataframe(
+    selection = st.dataframe(
         best_matches_df,
         hide_index=True,
         use_container_width=True,
+        on_select="rerun",
+        selection_mode="single-row",
         column_config={"Posting": st.column_config.LinkColumn(display_text="View")},
     )
+
+    selected_rows = selection.selection.rows if selection and selection.selection else []
+    if selected_rows:
+        selected_match = matches[selected_rows[0]]
+        if st.button(f"View full match: {selected_match['title']} — {selected_match['company']}"):
+            st.session_state["_jump_to_job_id"] = selected_match["job_id"]
+            st.session_state["_jump_to_resume_version_id"] = resume_version_id
+            st.session_state["nav_view"] = "Single Job Match"
+            st.rerun()
+    else:
+        st.caption("Select a row above to jump to its full Single Job Match view (radar chart + gap list).")
 
     categories = list(CATEGORIES)
     row_labels = []

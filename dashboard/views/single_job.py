@@ -65,14 +65,34 @@ def render() -> None:
         st.info('No resumes uploaded yet. Add one on the "Resumes" page.')
         return
 
-    job_options = {f"{j['title']} — {j['company']} (#{j['id']})": j["id"] for j in jobs}
+    jump_job_id = st.session_state.pop("_jump_to_job_id", None)
+    jump_resume_id = st.session_state.pop("_jump_to_resume_version_id", None)
+    if jump_job_id is not None:
+        st.session_state["single_job_search"] = ""
+
+    search_term = st.text_input(
+        "Search jobs (title or company)", placeholder='e.g. "AI Engineer" or "mistral"', key="single_job_search"
+    )
+    filtered_jobs = [
+        j for j in jobs if search_term.lower() in j["title"].lower() or search_term.lower() in j["company"].lower()
+    ]
+    if search_term and not filtered_jobs:
+        st.warning("No jobs match that search.")
+        return
+
+    job_options = {f"{j['title']} — {j['company']} (#{j['id']})": j["id"] for j in filtered_jobs}
     resume_options = {f"{r['display_name']} / {r['version_label']} (#{r['id']})": r["id"] for r in resume_versions}
+    job_labels = list(job_options.keys())
+    resume_labels = list(resume_options.keys())
+
+    default_job_index = next((i for i, l in enumerate(job_labels) if job_options[l] == jump_job_id), 0)
+    default_resume_index = next((i for i, l in enumerate(resume_labels) if resume_options[l] == jump_resume_id), 0)
 
     col1, col2 = st.columns(2)
     with col1:
-        job_label = st.selectbox("Job", list(job_options.keys()))
+        job_label = st.selectbox("Job", job_labels, index=default_job_index)
     with col2:
-        resume_label = st.selectbox("Resume version", list(resume_options.keys()))
+        resume_label = st.selectbox("Resume version", resume_labels, index=default_resume_index)
 
     job_id = job_options[job_label]
     resume_version_id = resume_options[resume_label]
