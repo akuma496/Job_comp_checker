@@ -10,7 +10,10 @@ from resume.taxonomy import _load_candidates, find_all_skills
 
 REQ_TYPE_WEIGHTS = {"explicit": 1.0, "context_inferred": 0.6, "cooccurring": 0.3}
 REQ_TYPE_PRIORITY = {"explicit": 0, "context_inferred": 1, "cooccurring": 2}
-EMBEDDING_MATCH_THRESHOLD = 0.55
+# Lowered from 0.55: all-MiniLM-L6-v2 often scores clean, correct paraphrases
+# (e.g. "Led a 6-person engineering team" vs "ability to guide and inspire a team")
+# around 0.50, so 0.55 was rejecting legitimate matches.
+EMBEDDING_MATCH_THRESHOLD = 0.50
 SEVERITY_PENALTY = {"low": 5, "medium": 10, "high": 20}
 
 

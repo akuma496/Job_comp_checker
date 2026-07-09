@@ -24,7 +24,7 @@ def call_claude_tool(
     tool_description: str,
     input_schema: dict,
     max_tokens: int = 2048,
-    max_retries: int = 3,
+    max_retries: int = 2,
 ) -> dict:
     """Force Claude to respond via a single structured tool call and return its `input` dict.
 
