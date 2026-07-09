@@ -1,5 +1,5 @@
 import json
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 
 from db.connection import get_conn
 from matching.embeddings import embed_texts, max_cosine_similarity
@@ -15,6 +15,18 @@ REQ_TYPE_PRIORITY = {"explicit": 0, "context_inferred": 1, "cooccurring": 2}
 # around 0.50, so 0.55 was rejecting legitimate matches.
 EMBEDDING_MATCH_THRESHOLD = 0.50
 SEVERITY_PENALTY = {"low": 5, "medium": 10, "high": 20}
+
+
+@dataclass
+class _ResumeContext:
+    """Everything about a resume_version that's invariant across every job it's
+    matched against — computed once and reused, instead of once per job."""
+
+    phrases: list[str]
+    phrase_embeddings: object  # np.ndarray | None
+    resume_skill_ids: set[int]
+    credibility_score: float | None
+    credibility_detail: dict | None
 
 
 def _compute_credibility(resume_version: dict) -> tuple[float | None, dict | None]:
@@ -54,7 +66,7 @@ def _resume_skill_ids(phrases: list[str], candidates) -> set[int]:
     return find_all_skills("\n".join(phrases), candidates=candidates)
 
 
-def compute_match(resume_version_id: int, job_id: int) -> dict:
+def _load_resume_context(resume_version_id: int) -> _ResumeContext:
     with get_conn() as conn:
         resume_version = conn.execute(
             "SELECT * FROM resume_versions WHERE id = ?", (resume_version_id,)
@@ -62,32 +74,55 @@ def compute_match(resume_version_id: int, job_id: int) -> dict:
         if resume_version is None:
             raise ValueError(f"No resume_version with id {resume_version_id}")
         resume_version = dict(resume_version)
-
-        requirements = conn.execute(
-            "SELECT * FROM requirements WHERE job_id = ?", (job_id,)
-        ).fetchall()
-        requirements = [dict(r) for r in requirements]
-
         candidates = _load_candidates(conn)
 
     phrases = _resume_phrases(resume_version)
     resume_skill_ids = _resume_skill_ids(phrases, candidates)
-
     phrase_embeddings = embed_texts(phrases) if phrases else None
+    credibility_score, credibility_detail = _compute_credibility(resume_version)
 
-    category_scores = {
-        cat: {"job_weighted": 0.0, "resume_weighted": 0.0, "counts": {t: {"total": 0, "covered": 0} for t in REQ_TYPE_WEIGHTS}}
-        for cat in CATEGORIES
-    }
+    return _ResumeContext(
+        phrases=phrases,
+        phrase_embeddings=phrase_embeddings,
+        resume_skill_ids=resume_skill_ids,
+        credibility_score=credibility_score,
+        credibility_detail=credibility_detail,
+    )
+
+
+def _score_job(resume_version_id: int, job_id: int, context: _ResumeContext) -> dict:
+    with get_conn() as conn:
+        requirements = conn.execute("SELECT * FROM requirements WHERE job_id = ?", (job_id,)).fetchall()
+        requirements = [dict(r) for r in requirements]
+
+    phrases = context.phrases
+    phrase_embeddings = context.phrase_embeddings
+    resume_skill_ids = context.resume_skill_ids
+
+    category_scores = {cat: {"job_weighted": 0.0, "resume_weighted": 0.0} for cat in CATEGORIES}
     gap_list = []
     job_weighted_total = 0.0
     resume_weighted_total = 0.0
 
-    for req in requirements:
+    # Keyword pass first (cheap), so only the requirements that actually need the
+    # embedding fallback get embedded — and those get embedded in one batched call
+    # instead of one model.encode() per requirement.
+    keyword_covered = [
+        req["normalized_skill_id"] is not None and req["normalized_skill_id"] in resume_skill_ids
+        for req in requirements
+    ]
+    fallback_indices = [i for i, covered in enumerate(keyword_covered) if not covered]
+    fallback_position = {orig_idx: pos for pos, orig_idx in enumerate(fallback_indices)}
+    fallback_embeddings = (
+        embed_texts([requirements[i]["raw_text"] for i in fallback_indices])
+        if fallback_indices and phrases
+        else None
+    )
+
+    for req_idx, req in enumerate(requirements):
         weight = REQ_TYPE_WEIGHTS[req["req_type"]]
         category = req["category"]
         category_scores[category]["job_weighted"] += weight
-        category_scores[category]["counts"][req["req_type"]]["total"] += 1
         job_weighted_total += weight
 
         covered = False
@@ -95,12 +130,12 @@ def compute_match(resume_version_id: int, job_id: int) -> dict:
         match_confidence = 0.0
         matched_phrase = None
 
-        if req["normalized_skill_id"] is not None and req["normalized_skill_id"] in resume_skill_ids:
+        if keyword_covered[req_idx]:
             covered = True
             match_type = "keyword"
             match_confidence = 1.0
         elif phrases:
-            req_embedding = embed_texts([req["raw_text"]])[0]
+            req_embedding = fallback_embeddings[fallback_position[req_idx]]
             score, idx = max_cosine_similarity(req_embedding, phrase_embeddings)
             if score >= EMBEDDING_MATCH_THRESHOLD:
                 covered = True
@@ -110,7 +145,6 @@ def compute_match(resume_version_id: int, job_id: int) -> dict:
 
         if covered:
             category_scores[category]["resume_weighted"] += weight
-            category_scores[category]["counts"][req["req_type"]]["covered"] += 1
             resume_weighted_total += weight
 
         # Surface both hard misses and weak (embedding-only) matches in the gap list —
@@ -133,14 +167,13 @@ def compute_match(resume_version_id: int, job_id: int) -> dict:
     gap_list.sort(key=lambda g: (REQ_TYPE_PRIORITY[g["req_type"]], -g["requirement_confidence"]))
 
     overall_score = (resume_weighted_total / job_weighted_total) if job_weighted_total > 0 else None
-    credibility_score, credibility_detail = _compute_credibility(resume_version)
 
     result = {
         "overall_score": overall_score,
         "category_scores": category_scores,
         "gap_list": gap_list,
-        "credibility_score": credibility_score,
-        "credibility_detail": credibility_detail,
+        "credibility_score": context.credibility_score,
+        "credibility_detail": context.credibility_detail,
     }
 
     with get_conn() as conn:
@@ -165,9 +198,34 @@ def compute_match(resume_version_id: int, job_id: int) -> dict:
                 overall_score,
                 json.dumps(category_scores),
                 json.dumps(gap_list),
-                credibility_score,
-                json.dumps(credibility_detail) if credibility_detail else None,
+                context.credibility_score,
+                json.dumps(context.credibility_detail) if context.credibility_detail else None,
             ),
         )
 
     return result
+
+
+def compute_match(resume_version_id: int, job_id: int) -> dict:
+    context = _load_resume_context(resume_version_id)
+    return _score_job(resume_version_id, job_id, context)
+
+
+def compute_match_batch(resume_version_id: int, job_ids: list[int], progress_callback=None) -> dict[int, dict | Exception]:
+    """Same as calling compute_match() once per job_id, but the resume-side setup
+    (phrase list, taxonomy candidates, phrase embeddings, credibility scoring) is
+    computed once for the whole batch instead of redundantly per job.
+
+    progress_callback(index, total, job_id), if given, is called after each job is
+    scored (for a UI progress bar). A per-job exception is caught, stored as the
+    result for that job_id, and does not stop the rest of the batch."""
+    context = _load_resume_context(resume_version_id)
+    results: dict[int, dict | Exception] = {}
+    for i, job_id in enumerate(job_ids):
+        try:
+            results[job_id] = _score_job(resume_version_id, job_id, context)
+        except Exception as exc:
+            results[job_id] = exc
+        if progress_callback:
+            progress_callback(i, len(job_ids), job_id)
+    return results

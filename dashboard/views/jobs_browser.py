@@ -1,3 +1,5 @@
+import html
+
 import pandas as pd
 import streamlit as st
 
@@ -105,10 +107,14 @@ def render() -> None:
     if job["posting_url"]:
         st.markdown(f"[View original posting]({job['posting_url']})")
 
-    if st.button("Re-extract this job", key=f"reextract_{job_id}", help="Costs 2 Claude API calls"):
+    if st.button("Re-extract this job", key=f"reextract_{job_id}", help="Costs 1 Claude API call"):
         with st.spinner("Extracting requirements..."):
-            process_job(job_id)
-        st.rerun()
+            try:
+                process_job(job_id)
+            except Exception as exc:
+                st.error(f"Extraction failed: {exc}")
+            else:
+                st.rerun()
 
     reqs_by_type: dict[str, list[dict]] = {t: [] for t in REQ_TYPE_ORDER}
     for r in detail["requirements"]:
@@ -129,7 +135,7 @@ def render() -> None:
                 continue
             for item in items:
                 st.markdown(
-                    f"{_badge(req_type)} **[{item['category']}]** {item['raw_text']} "
+                    f"{_badge(req_type)} **[{html.escape(item['category'])}]** {html.escape(item['raw_text'])} "
                     f"&nbsp;·&nbsp; confidence {item['confidence']:.2f}",
                     unsafe_allow_html=True,
                 )

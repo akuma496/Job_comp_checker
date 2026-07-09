@@ -47,11 +47,19 @@ def call_claude_tool(
             )
             usage = response.usage
             logger.info(
-                "claude call ok tool=%s input_tokens=%d output_tokens=%d",
+                "claude call ok tool=%s input_tokens=%d output_tokens=%d stop_reason=%s",
                 tool_name,
                 usage.input_tokens,
                 usage.output_tokens,
+                response.stop_reason,
             )
+            if response.stop_reason == "max_tokens":
+                logger.warning(
+                    "claude response for tool=%s was truncated at max_tokens=%d — "
+                    "results may be incomplete/malformed; consider raising max_tokens",
+                    tool_name,
+                    max_tokens,
+                )
             for block in response.content:
                 if block.type == "tool_use" and block.name == tool_name:
                     return block.input

@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import streamlit as st
@@ -8,6 +9,16 @@ from db.connection import get_conn
 from resume.parser import extract_raw_text, parsed_resume_to_json, structure_resume
 
 RESUME_DIR = BASE_DIR / "data" / "resumes"
+
+_UNSAFE_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _safe_path_component(value: str, fallback: str = "file") -> str:
+    """Neutralize path separators and '..' so this can't escape RESUME_DIR when
+    concatenated into a filename (value may come straight from user text_input
+    or an uploaded file's client-supplied name)."""
+    value = _UNSAFE_CHARS.sub("_", value).lstrip(".")
+    return value or fallback
 
 
 def _get_or_create_resume(conn, display_name: str) -> int:
@@ -79,7 +90,10 @@ def render() -> None:
                         suffix += 1
                 used_labels.add(label)
 
-                dest_path = RESUME_DIR / f"{display_name}_{label}_{uploaded_file.name}"
+                safe_display_name = _safe_path_component(display_name)
+                safe_label = _safe_path_component(label)
+                safe_upload_name = _safe_path_component(Path(uploaded_file.name).name)
+                dest_path = RESUME_DIR / f"{safe_display_name}_{safe_label}_{safe_upload_name}"
                 dest_path.write_bytes(uploaded_file.getvalue())
 
                 try:
@@ -131,14 +145,18 @@ def render() -> None:
             else:
                 if st.button("Parse structure (uses 1 Claude call)", key=f"parse_{version['id']}"):
                     with st.spinner("Structuring resume..."):
-                        parsed = structure_resume(version["raw_text"])
-                        parsed_json = parsed_resume_to_json(parsed)
-                        with get_conn() as conn:
-                            conn.execute(
-                                "UPDATE resume_versions SET parsed_json = ?, parsed_at = datetime('now') WHERE id = ?",
-                                (parsed_json, version["id"]),
-                            )
-                    st.rerun()
+                        try:
+                            parsed = structure_resume(version["raw_text"])
+                            parsed_json = parsed_resume_to_json(parsed)
+                            with get_conn() as conn:
+                                conn.execute(
+                                    "UPDATE resume_versions SET parsed_json = ?, parsed_at = datetime('now') WHERE id = ?",
+                                    (parsed_json, version["id"]),
+                                )
+                        except Exception as exc:
+                            st.error(f"Structuring failed: {exc}")
+                        else:
+                            st.rerun()
 
             st.divider()
             preview = (version["raw_text"] or "")[:2000]

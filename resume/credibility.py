@@ -19,7 +19,9 @@ BUZZWORDS = (
     "excellent communication skills", "think outside the box", "fast-paced environment",
     "wear many hats", "hit the ground running",
 )
-METRIC_PATTERN = re.compile(r"\d+(\.\d+)?\s*(%|percent|x\b|million|billion|thousand|\bk\b|\$)", re.IGNORECASE)
+METRIC_PATTERN = re.compile(
+    r"\$\s*\d+(\.\d+)?|\d+(\.\d+)?\s*(%|percent|x\b|million|billion|thousand|\bk\b|\$)", re.IGNORECASE
+)
 GAP_MONTHS_THRESHOLD = 3
 
 
@@ -79,7 +81,23 @@ def check_internal_consistency(parsed: ParsedResume, today: date | None = None) 
                     )
                 )
 
-    total_months = sum(max(0, _months_between(e.start_date, e.end_date or today)) for e in entries)
+    # Merge overlapping/adjacent date ranges before summing so concurrent roles
+    # (e.g. a full-time job + a side/consulting gig at the same time) aren't
+    # double-counted toward total experience.
+    total_months = 0
+    merged_start: date | None = None
+    merged_end: date | None = None
+    for entry in entries:
+        entry_end = entry.end_date or today
+        if merged_start is None:
+            merged_start, merged_end = entry.start_date, entry_end
+        elif entry.start_date <= merged_end:
+            merged_end = max(merged_end, entry_end)
+        else:
+            total_months += max(0, _months_between(merged_start, merged_end))
+            merged_start, merged_end = entry.start_date, entry_end
+    if merged_start is not None:
+        total_months += max(0, _months_between(merged_start, merged_end))
     total_years = round(total_months / 12, 1)
 
     senior_min_years = _senior_min_years()
@@ -90,7 +108,16 @@ def check_internal_consistency(parsed: ParsedResume, today: date | None = None) 
             prior_months += max(0, _months_between(prior.start_date, prior_end))
         prior_years = prior_months / 12
 
-        if any(kw in entry.title.lower() for kw in SENIOR_TITLE_KEYWORDS) and prior_years < senior_min_years:
+        title_lower = entry.title.lower()
+        is_senior_title = False
+        for kw in SENIOR_TITLE_KEYWORDS:
+            if not re.search(rf"\b{re.escape(kw)}\b", title_lower):
+                continue
+            if kw == "lead" and "lead generation" in title_lower:
+                continue  # "lead generation" is a sales/marketing term, not a seniority signal
+            is_senior_title = True
+            break
+        if is_senior_title and prior_years < senior_min_years:
             flags.append(
                 ConsistencyFlag(
                     kind="seniority_mismatch",

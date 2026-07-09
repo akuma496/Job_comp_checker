@@ -75,15 +75,28 @@ def run_pipeline(role_title: str) -> dict:
             for posting in matching:
                 _upsert_job(conn, company["id"], posting, role_title)
 
-            if seen_external_ids:
-                placeholders = ",".join("?" * len(seen_external_ids))
-                conn.execute(
-                    f"""
-                    UPDATE jobs SET status = 'removed'
-                    WHERE company_id = ? AND source_type = 'ats'
-                      AND external_id NOT IN ({placeholders})
-                    """,
-                    (company["id"], *seen_external_ids),
-                )
+            # Key this off `postings` (the raw fetch), not `seen_external_ids` (the
+            # role-filtered subset) — a board can genuinely have zero postings that
+            # still match role_title while the fetch itself succeeded, and we still
+            # want previously-tracked jobs marked removed in that case. Only skip
+            # when `postings` is empty too, since fetch_postings() returns [] on a
+            # failed request as well as on a real empty board, and we'd rather not
+            # mark things removed on an ambiguous/failed fetch.
+            if postings:
+                if seen_external_ids:
+                    placeholders = ",".join("?" * len(seen_external_ids))
+                    conn.execute(
+                        f"""
+                        UPDATE jobs SET status = 'removed'
+                        WHERE company_id = ? AND source_type = 'ats'
+                          AND external_id NOT IN ({placeholders})
+                        """,
+                        (company["id"], *seen_external_ids),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE jobs SET status = 'removed' WHERE company_id = ? AND source_type = 'ats'",
+                        (company["id"],),
+                    )
 
     return stats

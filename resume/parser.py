@@ -163,26 +163,29 @@ def parsed_resume_to_json(parsed: ParsedResume) -> str:
 
 
 def parsed_resume_from_json(raw_json: str) -> ParsedResume:
+    """Uses .get() throughout rather than direct indexing — parsed_json may have been
+    written by an older schema version, so a missing key should degrade gracefully
+    (e.g. skip credibility scoring) rather than crash the whole match computation."""
     data = json.loads(raw_json)
     return ParsedResume(
         experience=[
             ExperienceEntry(
-                title=e["title"],
-                company=e["company"],
-                start_date=date.fromisoformat(e["start_date"]) if e["start_date"] else None,
-                end_date=date.fromisoformat(e["end_date"]) if e["end_date"] else None,
-                bullets=e["bullets"],
+                title=e.get("title", ""),
+                company=e.get("company", ""),
+                start_date=date.fromisoformat(e["start_date"]) if e.get("start_date") else None,
+                end_date=date.fromisoformat(e["end_date"]) if e.get("end_date") else None,
+                bullets=e.get("bullets") or [],
             )
-            for e in data["experience"]
+            for e in data.get("experience", [])
         ],
         education=[
             EducationEntry(
-                degree=e["degree"],
-                institution=e["institution"],
+                degree=e.get("degree", ""),
+                institution=e.get("institution", ""),
                 field_of_study=e.get("field_of_study"),
-                graduation_date=date.fromisoformat(e["graduation_date"]) if e["graduation_date"] else None,
+                graduation_date=date.fromisoformat(e["graduation_date"]) if e.get("graduation_date") else None,
             )
-            for e in data["education"]
+            for e in data.get("education", [])
         ],
-        skills_claimed=data["skills_claimed"],
+        skills_claimed=data.get("skills_claimed") or [],
     )

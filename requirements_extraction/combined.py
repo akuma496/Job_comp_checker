@@ -10,10 +10,13 @@ SYSTEM_PROMPT = """You analyze a job posting and extract two DISTINCT categories
 requirements. Keep them strictly separate — do not let one category's reasoning bleed
 into the other.
 
-1. EXPLICIT requirements: things literally, explicitly stated in the posting text.
-   Do not infer or guess anything beyond what the text actually says. Keep each
-   raw_text short and specific (a phrase, not a whole sentence). Confidence should be
-   near 1.0 for all of these since they are literal quotes from the text.
+1. EXPLICIT requirements: things literally, explicitly stated in the POSTING TEXT only.
+   Every explicit item must be traceable to an actual phrase in the posting text — never
+   to the metadata fields (seniority/department/location) below, even if they seem
+   relevant. Those metadata fields exist solely to support category 2; do not let them
+   influence category 1 at all. Keep each raw_text short and specific (a phrase, not a
+   whole sentence). Confidence should be near 1.0 for all of these since they are
+   literal quotes from the text.
 
 2. CONTEXT-INFERRED requirements: things IMPLIED by metadata (seniority level,
    team/department context, company/industry context, location) but NEVER explicitly

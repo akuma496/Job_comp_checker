@@ -1,3 +1,4 @@
+import html
 import json
 
 import streamlit as st
@@ -144,7 +145,7 @@ def render() -> None:
         status_label = "Weak match" if gap["status"] == "weak_match" else "Missing"
         st.markdown(
             f"<span style='color:{badge_color}; font-weight:600; font-size:0.8em;'>{REQ_TYPE_LABELS[gap['req_type']]}</span> "
-            f"· **{status_label}** · [{gap['category']}] {gap['raw_text']}",
+            f"· **{status_label}** · [{html.escape(gap['category'])}] {html.escape(gap['raw_text'])}",
             unsafe_allow_html=True,
         )
         if gap.get("matched_phrase"):

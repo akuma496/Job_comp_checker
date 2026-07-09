@@ -58,15 +58,15 @@ def _load_candidates(conn, csv_path: Path = SEED_CSV_PATH) -> list[tuple[str, in
     Sorted longest-first so substring matching prefers more specific terms
     (e.g. "JavaScript" over "Java")."""
     rows = _read_seed_rows(csv_path)
+    # One query for every skill_id lookup this needs, instead of one SELECT per CSV row.
+    skill_id_by_name = {r["canonical_name"]: r["id"] for r in conn.execute("SELECT canonical_name, id FROM skills")}
+
     candidates = []
     for row in rows:
         canonical_name = row["canonical_name"].strip()
-        skill = conn.execute(
-            "SELECT id FROM skills WHERE canonical_name = ?", (canonical_name,)
-        ).fetchone()
-        if skill is None:
+        skill_id = skill_id_by_name.get(canonical_name)
+        if skill_id is None:
             continue
-        skill_id = skill["id"]
         candidates.append((canonical_name.lower(), skill_id))
         for alias in (row.get("aliases") or "").split("|"):
             alias = alias.strip()

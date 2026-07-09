@@ -6,7 +6,7 @@ import streamlit as st
 
 from dashboard.charts import build_gap_bar_figure, build_heatmap_figure
 from db.connection import get_conn
-from matching.engine import compute_match
+from matching.engine import compute_match_batch
 from requirements_extraction.models import CATEGORIES
 
 TOP_N_GAPS = 15
@@ -73,14 +73,17 @@ def render() -> None:
     def _run_matches(job_ids: list[int]) -> None:
         progress = st.progress(0.0)
         status = st.empty()
-        for i, job_id in enumerate(job_ids):
-            status.write(f"Matching job {job_id} ({i + 1}/{len(job_ids)})...")
-            try:
-                compute_match(resume_version_id, job_id)
-            except Exception as exc:
-                st.warning(f"job {job_id} failed: {exc}")
-            progress.progress((i + 1) / len(job_ids))
+
+        def _on_progress(i: int, total: int, job_id: int) -> None:
+            status.write(f"Matching job {job_id} ({i + 1}/{total})...")
+            progress.progress((i + 1) / total)
+
+        results = compute_match_batch(resume_version_id, job_ids, progress_callback=_on_progress)
         status.empty()
+
+        for job_id, result in results.items():
+            if isinstance(result, Exception):
+                st.warning(f"job {job_id} failed: {result}")
         st.rerun()
 
     col1, col2 = st.columns(2)
@@ -109,7 +112,7 @@ def render() -> None:
                 "Rank": i + 1,
                 "Job": m["title"],
                 "Company": m["company"],
-                "Match %": round((m["overall_score"] or 0) * 100),
+                "Match %": round(m["overall_score"] * 100) if m["overall_score"] is not None else "N/A (not extracted)",
                 "Posting": m["posting_url"],
             }
             for i, m in enumerate(matches)
@@ -136,11 +139,21 @@ def render() -> None:
         st.caption("Select a row above to jump to its full Single Job Match view (radar chart + gap list).")
 
     categories = list(CATEGORIES)
-    row_labels = []
-    heatmap_z = []
     gap_counter: Counter[str] = Counter()
 
     for m in matches:
+        gap_list = json.loads(m["gap_list_json"])
+        for gap in gap_list:
+            if gap["status"] == "missing":
+                gap_counter[gap["raw_text"]] += 1
+
+    # Independent of the Best Matches table's best-first order — the heatmap sorts
+    # worst-first so weak spots are visible without scrolling, since these two views
+    # share the same underlying `matches` query but serve different reading orders.
+    heatmap_matches = sorted(matches, key=lambda m: m["overall_score"] if m["overall_score"] is not None else -1)
+    row_labels = []
+    heatmap_z = []
+    for m in heatmap_matches:
         row_labels.append(f"{m['title']} — {m['company']}")
         cat_scores = json.loads(m["category_scores_json"])
         row = []
@@ -149,11 +162,6 @@ def render() -> None:
             resume_w = cat_scores[cat]["resume_weighted"]
             row.append((resume_w / job_w) if job_w > 0 else None)
         heatmap_z.append(row)
-
-        gap_list = json.loads(m["gap_list_json"])
-        for gap in gap_list:
-            if gap["status"] == "missing":
-                gap_counter[gap["raw_text"]] += 1
 
     st.subheader("Coverage Heatmap")
     st.plotly_chart(build_heatmap_figure(row_labels, categories, heatmap_z), use_container_width=True)
