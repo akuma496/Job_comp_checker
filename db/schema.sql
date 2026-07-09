@@ -100,6 +100,13 @@ CREATE TABLE IF NOT EXISTS matches (
     UNIQUE (resume_version_id, job_id)
 );
 
+CREATE TABLE IF NOT EXISTS embedding_cache (
+    text_hash TEXT PRIMARY KEY,
+    text TEXT NOT NULL,
+    embedding BLOB NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs (company_id);
 CREATE INDEX IF NOT EXISTS idx_requirements_job ON requirements (job_id);
 CREATE INDEX IF NOT EXISTS idx_requirements_skill ON requirements (normalized_skill_id);

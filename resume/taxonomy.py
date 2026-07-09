@@ -110,6 +110,25 @@ def normalize_skill(raw_text: str, candidates: list[tuple[str, int]] | None = No
     return None
 
 
+def find_all_skills(text: str, candidates: list[tuple[str, int]] | None = None) -> set[int]:
+    """Find every taxonomy skill mentioned anywhere in a longer piece of text (e.g. a
+    resume's full bullet list), unlike normalize_skill which assumes the input is about
+    a single skill and stops at the first (longest) match — wrong here, since a bullet
+    like "Built Python microservices" legitimately references two distinct skills."""
+    text_lower = text.lower()
+    if candidates is None:
+        with get_conn() as conn:
+            candidates = _load_candidates(conn)
+
+    found = set()
+    for term, skill_id in candidates:
+        if len(term) < 2:
+            continue
+        if re.search(rf"(?<!\w){re.escape(term)}(?!\w)", text_lower):
+            found.add(skill_id)
+    return found
+
+
 def backfill_normalized_skills() -> int:
     """Re-normalize every requirement's raw_text against the seed taxonomy, upgrading
     from the naive per-phrase bootstrap skills created during Milestone 2's cold start.

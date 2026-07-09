@@ -1,10 +1,11 @@
+import json
 from pathlib import Path
 
 import streamlit as st
 
 from config import BASE_DIR
 from db.connection import get_conn
-from resume.parser import extract_raw_text
+from resume.parser import extract_raw_text, parsed_resume_to_json, structure_resume
 
 RESUME_DIR = BASE_DIR / "data" / "resumes"
 
@@ -22,7 +23,8 @@ def _load_resumes() -> list[dict]:
         rows = conn.execute(
             """
             SELECT resume_versions.id, resumes.display_name, resume_versions.version_label,
-                   resume_versions.file_path, resume_versions.raw_text, resume_versions.parsed_at
+                   resume_versions.file_path, resume_versions.raw_text, resume_versions.parsed_json,
+                   resume_versions.parsed_at
             FROM resume_versions JOIN resumes ON resumes.id = resume_versions.resume_id
             ORDER BY resume_versions.id DESC
             """
@@ -112,5 +114,32 @@ def render() -> None:
     for version in versions:
         with st.expander(f"{version['display_name']} — {version['version_label']}"):
             st.caption(Path(version["file_path"]).name)
+
+            if version["parsed_json"]:
+                st.success(f"Structured (parsed {version['parsed_at']})")
+                data = json.loads(version["parsed_json"])
+                st.write(f"**Experience** ({len(data['experience'])})")
+                for exp in data["experience"]:
+                    end = exp["end_date"] or "present"
+                    st.write(f"- {exp['title']} @ {exp['company']} ({exp['start_date']} → {end})")
+                    for bullet in exp["bullets"]:
+                        st.caption(f"　· {bullet}")
+                st.write(f"**Education** ({len(data['education'])})")
+                for edu in data["education"]:
+                    st.write(f"- {edu['degree']}, {edu['institution']}")
+                st.write(f"**Skills claimed**: {', '.join(data['skills_claimed'])}")
+            else:
+                if st.button("Parse structure (uses 1 Claude call)", key=f"parse_{version['id']}"):
+                    with st.spinner("Structuring resume..."):
+                        parsed = structure_resume(version["raw_text"])
+                        parsed_json = parsed_resume_to_json(parsed)
+                        with get_conn() as conn:
+                            conn.execute(
+                                "UPDATE resume_versions SET parsed_json = ?, parsed_at = datetime('now') WHERE id = ?",
+                                (parsed_json, version["id"]),
+                            )
+                    st.rerun()
+
+            st.divider()
             preview = (version["raw_text"] or "")[:2000]
             st.text(preview + ("..." if len(version["raw_text"] or "") > 2000 else ""))
