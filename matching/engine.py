@@ -1,13 +1,36 @@
 import json
+from dataclasses import asdict
 
 from db.connection import get_conn
 from matching.embeddings import embed_texts, max_cosine_similarity
 from requirements_extraction.models import CATEGORIES
+from resume.credibility import check_internal_consistency
+from resume.parser import parsed_resume_from_json
 from resume.taxonomy import _load_candidates, find_all_skills
 
 REQ_TYPE_WEIGHTS = {"explicit": 1.0, "context_inferred": 0.6, "cooccurring": 0.3}
 REQ_TYPE_PRIORITY = {"explicit": 0, "context_inferred": 1, "cooccurring": 2}
 EMBEDDING_MATCH_THRESHOLD = 0.55
+SEVERITY_PENALTY = {"low": 5, "medium": 10, "high": 20}
+
+
+def _compute_credibility(resume_version: dict) -> tuple[float | None, dict | None]:
+    """Credibility is a property of the resume alone, not the job — recomputed
+    identically for every match against this resume_version. Returns None until the
+    resume has been structured (parsed_json populated), since the checks need real
+    experience-entry dates, not just raw text."""
+    if not resume_version["parsed_json"]:
+        return None, None
+
+    parsed = parsed_resume_from_json(resume_version["parsed_json"])
+    consistency = check_internal_consistency(parsed)
+    penalty = sum(SEVERITY_PENALTY[f.severity] for f in consistency.flags)
+    score = max(0.0, 100.0 - penalty)
+    detail = {
+        "flags": [asdict(f) for f in consistency.flags],
+        "total_experience_years": consistency.total_experience_years,
+    }
+    return score, detail
 
 
 def _resume_phrases(resume_version: dict) -> list[str]:
@@ -107,25 +130,41 @@ def compute_match(resume_version_id: int, job_id: int) -> dict:
     gap_list.sort(key=lambda g: (REQ_TYPE_PRIORITY[g["req_type"]], -g["requirement_confidence"]))
 
     overall_score = (resume_weighted_total / job_weighted_total) if job_weighted_total > 0 else None
+    credibility_score, credibility_detail = _compute_credibility(resume_version)
 
     result = {
         "overall_score": overall_score,
         "category_scores": category_scores,
         "gap_list": gap_list,
+        "credibility_score": credibility_score,
+        "credibility_detail": credibility_detail,
     }
 
     with get_conn() as conn:
         conn.execute(
             """
-            INSERT INTO matches (resume_version_id, job_id, overall_score, category_scores_json, gap_list_json)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO matches (
+                resume_version_id, job_id, overall_score, category_scores_json, gap_list_json,
+                credibility_score, credibility_detail_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (resume_version_id, job_id) DO UPDATE SET
                 computed_at = datetime('now'),
                 overall_score = excluded.overall_score,
                 category_scores_json = excluded.category_scores_json,
-                gap_list_json = excluded.gap_list_json
+                gap_list_json = excluded.gap_list_json,
+                credibility_score = excluded.credibility_score,
+                credibility_detail_json = excluded.credibility_detail_json
             """,
-            (resume_version_id, job_id, overall_score, json.dumps(category_scores), json.dumps(gap_list)),
+            (
+                resume_version_id,
+                job_id,
+                overall_score,
+                json.dumps(category_scores),
+                json.dumps(gap_list),
+                credibility_score,
+                json.dumps(credibility_detail) if credibility_detail else None,
+            ),
         )
 
     return result

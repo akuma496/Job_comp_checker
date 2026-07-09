@@ -100,6 +100,14 @@ CREATE TABLE IF NOT EXISTS matches (
     UNIQUE (resume_version_id, job_id)
 );
 
+CREATE TABLE IF NOT EXISTS onet_job_zones (
+    zone INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    typical_experience_text TEXT,
+    typical_education_text TEXT,
+    min_years_estimate REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS embedding_cache (
     text_hash TEXT PRIMARY KEY,
     text TEXT NOT NULL,
