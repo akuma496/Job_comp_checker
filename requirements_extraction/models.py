@@ -17,15 +17,32 @@ class RequirementDraft:
 
 def coerce_items(raw) -> list:
     """Claude's tool-use output is usually a proper list of dicts, but occasionally
-    returns the array JSON-encoded as a string instead. Recover that case instead of
-    silently iterating it character-by-character."""
+    the array comes back malformed in one of a few observed shapes:
+    - JSON-encoded as a string instead of a real array
+    - a single item dict instead of a one-item list
+    - an object keyed by index (e.g. {"0": {...}, "1": {...}}) instead of an array
+    - one level of extra list-nesting (e.g. [[{...}, {...}]] instead of [{...}, {...}])
+    Recover each of these instead of silently iterating/dropping the data."""
     if isinstance(raw, str):
         try:
             raw = json.loads(raw)
         except json.JSONDecodeError:
             logger.warning("requirements field was a non-JSON string, dropping: %r", raw[:200])
             return []
+
+    if isinstance(raw, dict):
+        if "raw_text" in raw:
+            return [raw]
+        raw = list(raw.values())
+
     if not isinstance(raw, list):
-        logger.warning("requirements field was not a list: %r", type(raw))
+        logger.warning("requirements field was an unrecognized type: %r", type(raw))
         return []
-    return raw
+
+    flattened = []
+    for item in raw:
+        if isinstance(item, list):
+            flattened.extend(item)
+        else:
+            flattened.append(item)
+    return flattened
