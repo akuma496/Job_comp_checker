@@ -3,6 +3,7 @@ import streamlit as st
 
 from dashboard.charts import REQ_TYPE_COLORS, REQ_TYPE_LABELS, build_requirement_count_bar
 from db.connection import get_conn
+from requirements_extraction.pipeline import process_job
 
 REQ_TYPE_ORDER = ["explicit", "context_inferred", "cooccurring"]
 
@@ -103,6 +104,11 @@ def render() -> None:
     meta_cols[3].metric("Status", job["status"])
     if job["posting_url"]:
         st.markdown(f"[View original posting]({job['posting_url']})")
+
+    if st.button("Re-extract this job", key=f"reextract_{job_id}", help="Costs 2 Claude API calls"):
+        with st.spinner("Extracting requirements..."):
+            process_job(job_id)
+        st.rerun()
 
     reqs_by_type: dict[str, list[dict]] = {t: [] for t in REQ_TYPE_ORDER}
     for r in detail["requirements"]:

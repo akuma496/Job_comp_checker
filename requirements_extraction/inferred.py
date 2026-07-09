@@ -53,6 +53,7 @@ def infer_context_requirements(job: Mapping) -> list[RequirementDraft]:
         tool_name="record_inferred_requirements",
         tool_description="Record requirements implied by context but not explicitly stated in the posting.",
         input_schema=INPUT_SCHEMA,
+        max_tokens=4096,
     )
     drafts = []
     for item in coerce_items(result.get("requirements", [])):

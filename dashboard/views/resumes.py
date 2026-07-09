@@ -42,33 +42,50 @@ def render() -> None:
 
     with st.form("upload_resume_form", clear_on_submit=True):
         name_choice = st.selectbox(
-            "Resume", options=["<new resume>"] + existing_names, help="Pick an existing resume to add a new version to, or create a new one."
+            "Resume", options=["<new resume>"] + existing_names, help="Pick an existing resume to add version(s) to, or create a new one."
         )
         new_name = st.text_input("New resume name", disabled=name_choice != "<new resume>", placeholder='e.g. "backend-focused"')
-        version_label = st.text_input("Version label", placeholder='e.g. "v1"')
-        uploaded_file = st.file_uploader("Resume file", type=["pdf", "docx", "txt"])
-        submitted = st.form_submit_button("Add resume version")
+        version_label = st.text_input(
+            "Version label",
+            placeholder='e.g. "v1"',
+            help="Only used when uploading a single file. For multiple files, each version label is derived from its filename.",
+        )
+        uploaded_files = st.file_uploader("Resume file(s)", type=["pdf", "docx", "txt"], accept_multiple_files=True)
+        submitted = st.form_submit_button("Add resume version(s)")
 
     if submitted:
         display_name = new_name.strip() if name_choice == "<new resume>" else name_choice
         if not display_name:
             st.error("Give the resume a name.")
-        elif not version_label.strip():
+        elif not uploaded_files:
+            st.error("Choose at least one file to upload.")
+        elif len(uploaded_files) == 1 and not version_label.strip():
             st.error("Give this version a label.")
-        elif uploaded_file is None:
-            st.error("Choose a file to upload.")
         else:
             RESUME_DIR.mkdir(parents=True, exist_ok=True)
-            dest_path = RESUME_DIR / f"{display_name}_{version_label}_{uploaded_file.name}"
-            dest_path.write_bytes(uploaded_file.getvalue())
+            used_labels: set[str] = set()
+            added = []
+            for uploaded_file in uploaded_files:
+                if len(uploaded_files) == 1:
+                    label = version_label.strip()
+                else:
+                    label = Path(uploaded_file.name).stem
+                    original_label = label
+                    suffix = 2
+                    while label in used_labels:
+                        label = f"{original_label}_{suffix}"
+                        suffix += 1
+                used_labels.add(label)
 
-            try:
-                raw_text = extract_raw_text(dest_path)
-            except ValueError as exc:
-                st.error(str(exc))
-                raw_text = None
+                dest_path = RESUME_DIR / f"{display_name}_{label}_{uploaded_file.name}"
+                dest_path.write_bytes(uploaded_file.getvalue())
 
-            if raw_text is not None:
+                try:
+                    raw_text = extract_raw_text(dest_path)
+                except ValueError as exc:
+                    st.error(f"{uploaded_file.name}: {exc}")
+                    continue
+
                 with get_conn() as conn:
                     resume_id = _get_or_create_resume(conn, display_name)
                     conn.execute(
@@ -76,9 +93,13 @@ def render() -> None:
                         INSERT INTO resume_versions (resume_id, version_label, file_path, raw_text)
                         VALUES (?, ?, ?, ?)
                         """,
-                        (resume_id, version_label.strip(), str(dest_path), raw_text),
+                        (resume_id, label, str(dest_path), raw_text),
                     )
-                st.success(f'Added "{display_name}" / "{version_label}" ({len(raw_text)} characters extracted).')
+                added.append((label, len(raw_text)))
+
+            if added:
+                summary = ", ".join(f'"{label}" ({chars} chars)' for label, chars in added)
+                st.success(f'Added to "{display_name}": {summary}')
                 st.rerun()
 
     st.divider()

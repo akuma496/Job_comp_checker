@@ -45,6 +45,7 @@ def extract_explicit_requirements(job: Mapping) -> list[RequirementDraft]:
         tool_name="record_requirements",
         tool_description="Record the explicit requirements found in the job posting.",
         input_schema=INPUT_SCHEMA,
+        max_tokens=4096,
     )
     drafts = []
     for item in coerce_items(result.get("requirements", [])):
