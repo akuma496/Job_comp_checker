@@ -1,6 +1,7 @@
 import json
 from collections import Counter
 
+import pandas as pd
 import streamlit as st
 
 from dashboard.charts import build_gap_bar_figure, build_heatmap_figure
@@ -41,12 +42,12 @@ def _load_matches_with_jobs(resume_version_id: int) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
             """
-            SELECT matches.*, jobs.title, companies.name AS company
+            SELECT matches.*, jobs.title, jobs.posting_url, companies.name AS company
             FROM matches
             JOIN jobs ON jobs.id = matches.job_id
             JOIN companies ON companies.id = jobs.company_id
             WHERE matches.resume_version_id = ? AND jobs.status = 'active'
-            ORDER BY matches.overall_score ASC
+            ORDER BY matches.overall_score DESC
             """,
             (resume_version_id,),
         ).fetchall()
@@ -88,6 +89,27 @@ def render() -> None:
         return
 
     st.write(f"{len(matches)} job(s) matched")
+
+    st.subheader("Best Matches")
+    st.caption("Every tracked job, ranked by overall match score for this resume version — highest first.")
+    best_matches_df = pd.DataFrame(
+        [
+            {
+                "Rank": i + 1,
+                "Job": m["title"],
+                "Company": m["company"],
+                "Match %": round((m["overall_score"] or 0) * 100),
+                "Posting": m["posting_url"],
+            }
+            for i, m in enumerate(matches)
+        ]
+    )
+    st.dataframe(
+        best_matches_df,
+        hide_index=True,
+        use_container_width=True,
+        column_config={"Posting": st.column_config.LinkColumn(display_text="View")},
+    )
 
     categories = list(CATEGORIES)
     row_labels = []
