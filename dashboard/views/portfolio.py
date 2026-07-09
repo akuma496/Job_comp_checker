@@ -70,18 +70,29 @@ def render() -> None:
     active_ids = set(_active_job_ids())
     missing_ids = active_ids - _matched_job_ids(resume_version_id)
 
-    if missing_ids and st.button(f"Compute matches for {len(missing_ids)} job(s) missing one (local, no API cost)"):
+    def _run_matches(job_ids: list[int]) -> None:
         progress = st.progress(0.0)
         status = st.empty()
-        for i, job_id in enumerate(sorted(missing_ids)):
-            status.write(f"Matching job {job_id} ({i + 1}/{len(missing_ids)})...")
+        for i, job_id in enumerate(job_ids):
+            status.write(f"Matching job {job_id} ({i + 1}/{len(job_ids)})...")
             try:
                 compute_match(resume_version_id, job_id)
             except Exception as exc:
                 st.warning(f"job {job_id} failed: {exc}")
-            progress.progress((i + 1) / len(missing_ids))
+            progress.progress((i + 1) / len(job_ids))
         status.empty()
         st.rerun()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if missing_ids and st.button(f"Compute matches for {len(missing_ids)} job(s) missing one (local, no API cost)"):
+            _run_matches(sorted(missing_ids))
+    with col2:
+        if active_ids and st.button(
+            f"Recompute ALL {len(active_ids)} matches (local, no API cost)",
+            help="Force-redo every match, not just missing ones — useful after tuning changes (thresholds, taxonomy, etc.)",
+        ):
+            _run_matches(sorted(active_ids))
 
     matches = _load_matches_with_jobs(resume_version_id)
     if not matches:

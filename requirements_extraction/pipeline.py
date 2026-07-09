@@ -1,9 +1,8 @@
 import logging
 
 from db.connection import get_conn
+from requirements_extraction.combined import extract_requirements
 from requirements_extraction.cooccurrence import generate_cooccurring_requirements, recompute_cooccurrence_matrix
-from requirements_extraction.explicit import extract_explicit_requirements
-from requirements_extraction.inferred import infer_context_requirements
 from requirements_extraction.models import RequirementDraft
 
 logger = logging.getLogger(__name__)
@@ -37,8 +36,7 @@ def process_job(job_id: int) -> dict:
     if job is None:
         raise ValueError(f"No job with id {job_id}")
 
-    explicit_drafts = extract_explicit_requirements(job)
-    inferred_drafts = infer_context_requirements(job)
+    explicit_drafts, inferred_drafts = extract_requirements(job)
 
     with get_conn() as conn:
         _clear_requirements(conn, job_id)
